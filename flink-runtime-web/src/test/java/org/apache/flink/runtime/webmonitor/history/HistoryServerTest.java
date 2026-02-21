@@ -944,7 +944,8 @@ class HistoryServerTest {
                 "test-application",
                 ApplicationState.FINISHED,
                 new long[ApplicationState.values().length],
-                jobs);
+                jobs,
+                Collections.emptyList());
     }
 
     private ExecutionGraphInfo createExecutionGraphInfo() {

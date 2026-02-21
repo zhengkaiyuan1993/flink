@@ -221,13 +221,21 @@ public class PackagedProgramApplication extends AbstractApplication {
                                                     dispatcherGateway, ApplicationStatus.SUCCEEDED);
                                         }
 
-                                        final Optional<JobStatus> maybeJobStatus =
-                                                extractJobStatus(t);
-                                        if (maybeJobStatus.isPresent()) {
+                                        final Optional<UnsuccessfulExecutionException>
+                                                maybeJobFailure = extractJobFailure(t);
+                                        // An UnsuccessfulExecutionException indicates the job
+                                        // terminated in CANCELED or FAILED state, since we already
+                                        // waited for a globally terminal state
+                                        // (FINISHED/CANCELED/FAILED) and FINISHED jobs do not throw
+                                        // this exception
+                                        if (maybeJobFailure.isPresent()) {
                                             // the exception is caused by job execution results
+                                            UnsuccessfulExecutionException jobFailure =
+                                                    maybeJobFailure.get();
+                                            JobStatus jobStatus =
+                                                    jobFailure.getStatus().orElseThrow();
                                             ApplicationState applicationState =
-                                                    ApplicationState.fromJobStatus(
-                                                            maybeJobStatus.get());
+                                                    ApplicationState.fromJobStatus(jobStatus);
                                             LOG.info("Application {}: ", applicationState, t);
                                             if (applicationState == ApplicationState.CANCELED) {
                                                 transitionToCanceling();
@@ -238,6 +246,9 @@ public class PackagedProgramApplication extends AbstractApplication {
                                                         errorHandler);
 
                                             } else {
+                                                addExceptionHistoryEntry(
+                                                        jobFailure.getCause(),
+                                                        jobFailure.getJobID());
                                                 transitionToFailing();
                                                 return finishAsFailed(
                                                         dispatcherGateway,
@@ -351,7 +362,12 @@ public class PackagedProgramApplication extends AbstractApplication {
                     dispatcherGateway, scheduledExecutor, mainThreadExecutor, errorHandler);
         }
 
-        LOG.warn("Application failed unexpectedly: ", t);
+        final Optional<ApplicationExecutionException> maybeApplicationFailure =
+                extractApplicationFailure(t);
+        final Throwable cause =
+                maybeApplicationFailure.isPresent() ? maybeApplicationFailure.get() : t;
+        LOG.warn("Application failed unexpectedly: ", cause);
+        addExceptionHistoryEntry(cause, null);
         transitionToFailing();
         return finishAsFailed(
                 dispatcherGateway, scheduledExecutor, mainThreadExecutor, errorHandler);
@@ -526,10 +542,12 @@ public class PackagedProgramApplication extends AbstractApplication {
                 : CompletableFuture.completedFuture(Acknowledge.get());
     }
 
-    private Optional<JobStatus> extractJobStatus(Throwable t) {
-        final Optional<UnsuccessfulExecutionException> maybeException =
-                ExceptionUtils.findThrowable(t, UnsuccessfulExecutionException.class);
-        return maybeException.flatMap(UnsuccessfulExecutionException::getStatus);
+    private Optional<UnsuccessfulExecutionException> extractJobFailure(Throwable t) {
+        return ExceptionUtils.findThrowable(t, UnsuccessfulExecutionException.class);
+    }
+
+    private Optional<ApplicationExecutionException> extractApplicationFailure(Throwable t) {
+        return ExceptionUtils.findThrowable(t, ApplicationExecutionException.class);
     }
 
     /**

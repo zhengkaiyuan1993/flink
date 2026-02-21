@@ -59,6 +59,7 @@ import org.apache.flink.runtime.entrypoint.ClusterEntryPointExceptionUtils;
 import org.apache.flink.runtime.executiongraph.AccessExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.ErrorInfo;
 import org.apache.flink.runtime.executiongraph.JobStatusListener;
 import org.apache.flink.runtime.heartbeat.HeartbeatServices;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
@@ -723,13 +724,34 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                     executionGraphInfo.getJobId());
                                         }
 
+                                        // record job exception for SingleJobApplication
+                                        if (application instanceof SingleJobApplication) {
+                                            jobs.values()
+                                                    .forEach(
+                                                            executionGraphInfo -> {
+                                                                ErrorInfo errorInfo =
+                                                                        executionGraphInfo
+                                                                                .getArchivedExecutionGraph()
+                                                                                .getFailureInfo();
+                                                                if (errorInfo != null) {
+                                                                    application
+                                                                            .addExceptionHistoryEntry(
+                                                                                    errorInfo
+                                                                                            .getException(),
+                                                                                    executionGraphInfo
+                                                                                            .getJobId());
+                                                                }
+                                                            });
+                                        }
+
                                         ArchivedApplication archivedApplication =
                                                 new ArchivedApplication(
                                                         application.getApplicationId(),
                                                         application.getName(),
                                                         application.getApplicationStatus(),
                                                         stateTimestamps,
-                                                        jobs);
+                                                        jobs,
+                                                        application.getExceptionHistory());
 
                                         applications.remove(applicationId);
                                         writeToArchivedApplicationStore(archivedApplication);
@@ -1262,7 +1284,8 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                                         ExecutionGraphInfo
                                                                                 ::getJobId,
                                                                         executionGraphInfo ->
-                                                                                executionGraphInfo)))));
+                                                                                executionGraphInfo)),
+                                                application.getExceptionHistory())));
     }
 
     @Override
