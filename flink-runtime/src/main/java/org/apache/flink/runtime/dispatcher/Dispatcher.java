@@ -709,29 +709,31 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                     })
                             .collect(Collectors.toList());
 
-            // wait for all jobs to be stored
-            FutureUtils.combineAll(jobFutures)
-                    .thenAcceptAsync(
-                            combinedJobs -> {
-                                Map<JobID, ExecutionGraphInfo> jobs = new HashMap<>();
-                                for (ExecutionGraphInfo executionGraphInfo : combinedJobs) {
-                                    jobs.put(executionGraphInfo.getJobId(), executionGraphInfo);
-                                    partialExecutionGraphInfoStore.remove(
-                                            executionGraphInfo.getJobId());
-                                }
+            // wait for all jobs to be stored, then archive the application
+            CompletableFuture<?> applicationArchivingFuture =
+                    FutureUtils.combineAll(jobFutures)
+                            .thenComposeAsync(
+                                    combinedJobs -> {
+                                        Map<JobID, ExecutionGraphInfo> jobs = new HashMap<>();
+                                        for (ExecutionGraphInfo executionGraphInfo : combinedJobs) {
+                                            jobs.put(
+                                                    executionGraphInfo.getJobId(),
+                                                    executionGraphInfo);
+                                            partialExecutionGraphInfoStore.remove(
+                                                    executionGraphInfo.getJobId());
+                                        }
 
-                                ArchivedApplication archivedApplication =
-                                        new ArchivedApplication(
-                                                application.getApplicationId(),
-                                                application.getName(),
-                                                application.getApplicationStatus(),
-                                                stateTimestamps,
-                                                jobs);
+                                        ArchivedApplication archivedApplication =
+                                                new ArchivedApplication(
+                                                        application.getApplicationId(),
+                                                        application.getName(),
+                                                        application.getApplicationStatus(),
+                                                        stateTimestamps,
+                                                        jobs);
 
-                                applications.remove(applicationId);
-                                writeToArchivedApplicationStore(archivedApplication);
-                                CompletableFuture<?> applicationArchivingFuture =
-                                        historyServerArchivist
+                                        applications.remove(applicationId);
+                                        writeToArchivedApplicationStore(archivedApplication);
+                                        return historyServerArchivist
                                                 .archiveApplication(archivedApplication)
                                                 .exceptionally(
                                                         throwable -> {
@@ -741,10 +743,9 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                                     throwable);
                                                             return null;
                                                         });
-                                applicationArchivingFutures.put(
-                                        applicationId, applicationArchivingFuture);
-                            },
-                            getMainThreadExecutor());
+                                    },
+                                    getMainThreadExecutor());
+            applicationArchivingFutures.put(applicationId, applicationArchivingFuture);
         }
     }
 
