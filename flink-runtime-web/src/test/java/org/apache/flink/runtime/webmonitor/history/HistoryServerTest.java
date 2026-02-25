@@ -647,6 +647,9 @@ class HistoryServerTest {
                 expectedApplicationAndJobIdsToKeep.add(
                         new Tuple2<>(applicationId, new HashSet<>(jobIds)));
             }
+            // Sleep to ensure archive files have distinct timestamps. Identical timestamps can lead
+            // to non-deterministic eviction order, causing test flakiness.
+            Thread.sleep(50);
         }
 
         // one for application itself, numJobsPerApplication for jobs
@@ -716,7 +719,8 @@ class HistoryServerTest {
                                 .collect(Collectors.toList());
                 expectedApplicationAndJobIdsToKeep.add(
                         new Tuple2<>(applicationId, new HashSet<>(jobIds)));
-                // avoid executing too fast, resulting in the same creation time of archive files
+                // Sleep to ensure archive files have distinct timestamps. Identical timestamps can
+                // lead to non-deterministic eviction order, causing test flakiness.
                 Thread.sleep(50);
             }
 
